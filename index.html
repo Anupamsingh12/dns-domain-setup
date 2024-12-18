@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tenant Custom Domain Setup</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      line-height: 1.6;
+      margin: 0;
+      padding: 0;
+      background-color: #f4f4f4;
+    }
+    .container {
+      width: 80%;
+      max-width: 1000px;
+      margin: 20px auto;
+      background-color: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+    h1, h2 {
+      color: #333;
+    }
+    pre {
+      background-color: #f5f5f5;
+      padding: 10px;
+      border-radius: 4px;
+      font-size: 0.9em;
+      border: 1px solid #ddd;
+    }
+    code {
+      font-size: 0.9em;
+      background-color: #f5f5f5;
+      padding: 2px 4px;
+      border-radius: 4px;
+    }
+    ul {
+      margin: 20px 0;
+      padding-left: 20px;
+    }
+    li {
+      margin-bottom: 10px;
+    }
+    .note {
+      background-color: #f9f9f9;
+      padding: 10px;
+      border-left: 5px solid #4caf50;
+      margin: 20px 0;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <h1>Tenant Custom Domain Setup</h1>
+    <p>Welcome to the custom domain setup guide. This document explains the steps you (as a tenant) and our developers need to take to map your custom domain (e.g., <code>xyz.com</code>) to our app.</p>
+    
+    <h2>Steps for Tenants (Custom Domain Owners)</h2>
+    <ol>
+      <li>
+        <strong>Provide Your Custom Domain</strong><br>
+        Enter the domain you wish to use (e.g., <code>xyz.com</code>) in the profile section of your account.
+      </li>
+      <li>
+        <strong>Update Your Domain's Nameservers</strong><br>
+        Go to your domain registrar (e.g., GoDaddy, Namecheap, etc.), and replace your current nameservers with the following Cloudflare nameservers:
+        <ul>
+          <li><code>ns1.cloudflare.com</code></li>
+          <li><code>ns2.cloudflare.com</code></li>
+        </ul>
+        Cloudflare will provide these nameservers once the domain is added to our system.
+      </li>
+      <li>
+        <strong>Optional: Set Up Redirect for Root Domain</strong><br>
+        If you want both <code>xyz.com</code> (root domain) and <code>www.xyz.com</code> to point to our app, follow the instructions provided by our support team.
+      </li>
+    </ol>
+
+    <div class="note">
+      <strong>Note:</strong> Please allow up to 24 hours for DNS changes to propagate after updating your nameservers.
+    </div>
+
+    <h2>Steps for Developers (Setting Up Cloudflare API Integration)</h2>
+    <p>The following steps outline the API calls needed to integrate a new custom domain for a tenant and configure the DNS settings using Cloudflare.</p>
+    
+    <h3>1. Create a Zone for the Tenant's Domain</h3>
+    Use the Cloudflare API to create a zone for the tenant's domain (e.g., <code>xyz.com</code>).
+
+    <pre><code>curl -X POST "https://api.cloudflare.com/client/v4/zones" \
+         -H "Authorization: Bearer YOUR_API_TOKEN" \
+         -H "Content-Type: application/json" \
+         --data '{
+           "name": "xyz.com",       # Tenant's custom domain
+           "jump_start": true        # Auto-start the zone creation
+         }'</code></pre>
+
+    <p>The response will return a <code>zone_id</code> that is required for further DNS management.</p>
+
+    <h3>2. Create DNS Records for the Tenant's Domain</h3>
+    For example, to create a CNAME record for <code>www.xyz.com</code> to point to the main app <code>sample.com</code>:
+
+    <pre><code>curl -X POST "https://api.cloudflare.com/client/v4/zones/YOUR_ZONE_ID/dns_records" \
+         -H "Authorization: Bearer YOUR_API_TOKEN" \
+         -H "Content-Type: application/json" \
+         --data '{
+           "type": "CNAME",
+           "name": "www",            # Represents www.xyz.com
+           "content": "sample.com",  # The target domain (your main app)
+           "ttl": 3600,              # Time-to-live (1 hour)
+           "proxied": true           # Enable Cloudflare proxying
+         }'</code></pre>
+
+    <h3>3. Optional: Create an A Record or Page Rule for the Root Domain</h3>
+    If the tenant wants their root domain (e.g., <code>xyz.com</code>) to also point to <code>sample.com</code>, create an A record or a page rule for URL forwarding.
+
+    **A Record Example:**
+    <pre><code>curl -X POST "https://api.cloudflare.com/client/v4/zones/YOUR_ZONE_ID/dns_records" \
+         -H "Authorization: Bearer YOUR_API_TOKEN" \
+         -H "Content-Type: application/json" \
+         --data '{
+           "type": "A",              # A record for the root domain
+           "name": "xyz",            # Represents xyz.com
+           "content": "YOUR_SERVER_IP",  # IP of your server where sample.com is hosted
+           "ttl": 3600,              # TTL (1 hour)
+           "proxied": true           # Enable Cloudflare proxying
+         }'</code></pre>
+
+    **Page Rule Example (for URL forwarding):**
+    <pre><code>curl -X POST "https://api.cloudflare.com/client/v4/zones/YOUR_ZONE_ID/page_rules" \
+         -H "Authorization: Bearer YOUR_API_TOKEN" \
+         -H "Content-Type: application/json" \
+         --data '{
+           "targets": [
+             {
+               "url": "http://xyz.com/*",
+               "constraint": {
+                 "operator": "matches",
+                 "value": "http://xyz.com/*"
+               }
+             }
+           ],
+           "actions": [
+             {
+               "id": "forwarding_url",
+               "value": {
+                 "url": "http://sample.com/$1",
+                 "status_code": 301
+               }
+             }
+           ],
+           "priority": 1
+         }'</code></pre>
+
+    <h3>4. Tenant's Custom Domain Is Active!</h3>
+    Once the tenant updates their nameservers and DNS records are configured correctly, their custom domain will point to your main app, and they can access the site using their own domain (e.g., <code>www.xyz.com</code> or <code>xyz.com</code>).
+
+    <div class="note">
+      <strong>Note:</strong> If you encounter any issues, contact our support team to ensure everything is set up properly.
+    </div>
+
+  </div>
+
+</body>
+</html>
